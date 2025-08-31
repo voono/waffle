@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VOONO WAS HERE</title>
+  <meta name="description" content="Official website placeholder" />
+  <meta name="robots" content="index,follow" />
+  <link rel="icon" href="/favicon.ico" />
+
+  <script>
+    const originalTitle = document.title;
+    window.addEventListener("blur", () => { document.title = "Come back"; });
+    window.addEventListener("focus", () => { document.title = originalTitle; });
+  </script>
+
+  <style>
+    :root{
+      --stage-bg: radial-gradient(60vmax 60vmax at 70% 20%, #ffe6f2 0%, #ffe6f2 25%, #f7f0ff 26%, #f7f0ff 60%, #e8f7ff 100%);
+      --shadow: drop-shadow(0 12px 18px rgba(0,0,0,.15));
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0}
+    body{
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, Noto Sans, 'Apple Color Emoji', 'Segoe UI Emoji';
+      background:#fafafe;
+      color:#2a2a2a;
+    }
+    .stage{
+      position:relative; inline-size:100%; block-size:100dvh; overflow:hidden;
+      background:var(--stage-bg);
+      user-select:none; touch-action:none;
+    }
+    .hint{
+      position:absolute; inset:16px auto auto 16px; padding:10px 12px; border-radius:12px;
+      background:rgba(255,255,255,.75); backdrop-filter: blur(6px);
+      box-shadow: 0 6px 18px rgba(0,0,0,.07);
+      font-size:14px; line-height:1.2;
+    }
+    .girl{
+      position:absolute; inline-size:min(22vmin, 170px); aspect-ratio: 1 / 1;
+      transform: translate(-50%, -50%);
+      filter: var(--shadow) saturate(1.05);
+      will-change: transform;
+      pointer-events:none;
+    }
+    .girl img{ inline-size:100%; block-size:auto; display:block; image-rendering:auto; }
+    .hearts{ position:absolute; inset:0; pointer-events:none; overflow:hidden; }
+    .heart{
+      position:absolute; font-size:24px; opacity:0; transform:translate(-50%, -50%) scale(.7) rotate(-10deg);
+      animation: floatUp 900ms ease-in forwards;
+      text-shadow: 0 4px 8px rgba(0,0,0,.15);
+    }
+    @keyframes floatUp{
+      0%{ opacity:0; transform:translate(-50%, -30%) scale(.7) rotate(-10deg); }
+      20%{ opacity:1 }
+      100%{ opacity:0; transform:translate(-50%, -150%) scale(1.2) rotate(10deg); }
+    }
+    .petting-indicator{
+      position:absolute; inline-size:60px; block-size:60px; border-radius:50%;
+      background: radial-gradient(closest-side, rgba(255,255,255,.9), rgba(255,255,255,.1));
+      box-shadow:0 8px 24px rgba(0,0,0,.12);
+      transform: translate(-50%, -50%) scale(0.9);
+      opacity:0; pointer-events:none;
+      transition:opacity 120ms ease, transform 120ms ease;
+    }
+    .petting-indicator.show{ opacity:1; transform: translate(-50%, -50%) scale(1); }
+    .footer{
+      position:absolute; inset:auto 12px 10px 12px; font-size:12px; opacity:.8; text-align:center;
+    }
+  </style>
+</head>
+<body>
+  <div class="stage" id="stage" aria-label="Play area">
+    <div class="hint">Move around — she’ll follow you. Hold on her head to pet 👋💕</div>
+
+    <!-- Character -->
+    <div class="girl" id="girl" style="left:50%; top:50%">
+      <img id="girlImg" alt="Anime girl" src="https://i.pinimg.com/originals/24/be/9c/24be9c8a3f8f9c7ee38e7a37e7ba7243.gif" />
+    </div>
+
+    <!-- FX layers -->
+    <div class="hearts" id="hearts"></div>
+    <div class="petting-indicator" id="petDot" title="petting spot"></div>
+
+    <div class="footer">© All rights reserved by Voono.</div>
+  </div>
+
+  <script>
+    const stage = document.getElementById('stage');
+    const girl = document.getElementById('girl');
+    const hearts = document.getElementById('hearts');
+    const petDot = document.getElementById('petDot');
+
+    let target = { x: innerWidth * 0.5, y: innerHeight * 0.5 };
+    let pos = { x: target.x, y: target.y };
+    const speed = 0.06; // slower speed
+    const maxStep = 15; // smaller steps
+    const followThreshold = 80;
+
+    const pointer = { x: target.x, y: target.y, down: false, inside: false };
+
+    let facing = 1;
+
+    function clamp(n, min, max){ return Math.min(max, Math.max(min, n)); }
+
+    function updateTargetFromClientPoint(clientX, clientY){
+      const rect = stage.getBoundingClientRect();
+      target.x = clamp(clientX - rect.left, 30, rect.width - 30);
+      target.y = clamp(clientY - rect.top, rect.height * 0.4, rect.height - 20);
+    }
+
+    stage.addEventListener('mousemove', e => {
+      pointer.inside = true; pointer.x = e.clientX; pointer.y = e.clientY; updateTargetFromClientPoint(e.clientX, e.clientY);
+    });
+    stage.addEventListener('mouseleave', () => { pointer.inside = false; });
+    stage.addEventListener('mousedown', () => { pointer.down = true; });
+    stage.addEventListener('mouseup',   () => { pointer.down = false; });
+
+    stage.addEventListener('touchstart', e => {
+      const t = e.touches[0]; pointer.down = true; pointer.inside = true; pointer.x = t.clientX; pointer.y = t.clientY; updateTargetFromClientPoint(t.clientX, t.clientY);
+    }, {passive:true});
+    stage.addEventListener('touchmove', e => {
+      const t = e.touches[0]; pointer.x = t.clientX; pointer.y = t.clientY; updateTargetFromClientPoint(t.clientX, t.clientY);
+    }, {passive:true});
+    stage.addEventListener('touchend', () => { pointer.down = false; pointer.inside = false; });
+
+    let heartTimer = null;
+    function spawnHeart(x, y){
+      const h = document.createElement('span');
+      h.className = 'heart';
+      h.textContent = Math.random() < 0.5 ? '❤' : '💕';
+      h.style.left = x + 'px';
+      h.style.top  = y + 'px';
+      hearts.appendChild(h);
+      h.addEventListener('animationend', () => h.remove());
+    }
+
+    function startHearts(cx, cy){
+      if(heartTimer) return;
+      spawnHeart(cx + (Math.random()*16-8), cy + (Math.random()*10-4));
+      heartTimer = setInterval(()=> spawnHeart(cx + (Math.random()*16-8), cy + (Math.random()*8-4)), 140);
+    }
+    function stopHearts(){ if(heartTimer){ clearInterval(heartTimer); heartTimer = null; } }
+
+    function tick(){
+      let dx = target.x - pos.x;
+      let dy = target.y - pos.y;
+
+      const rect = girl.getBoundingClientRect();
+      const centerX = rect.left + rect.width * 0.5;
+      const centerY = rect.top  + rect.height * 0.5;
+      const dist = Math.hypot(pointer.x - centerX, pointer.y - centerY);
+
+      const headX = rect.left + rect.width * 0.5;
+      const headY = rect.top  + rect.height * 0.22;
+      const headR = Math.min(rect.width, rect.height) * 0.20;
+
+      const overHead = pointer.inside && Math.hypot(pointer.x - headX, pointer.y - headY) <= headR;
+
+      if(!overHead && dist > followThreshold){
+        const step = Math.min(maxStep, Math.hypot(dx, dy) * speed);
+        pos.x += (dx / Math.hypot(dx, dy)) * step;
+        pos.y += (dy / Math.hypot(dx, dy)) * step;
+        facing = (dx < 0) ? -1 : 1;
+      }
+
+      girl.style.transform = `translate(-50%, -50%) scaleX(${facing})`;
+      girl.style.left = pos.x + 'px';
+      girl.style.top  = pos.y + 'px';
+
+      petDot.style.left = headX + 'px';
+      petDot.style.top  = headY + 'px';
+      petDot.classList.toggle('show', overHead);
+
+      if(overHead && pointer.down){
+        const t = performance.now();
+        const bob = Math.sin(t/90) * 1.6;
+        girl.style.top = (pos.y + bob) + 'px';
+        startHearts(headX - stage.getBoundingClientRect().left, headY - stage.getBoundingClientRect().top);
+      }else{
+        stopHearts();
+      }
+
+      requestAnimationFrame(tick);
+    }
+
+    requestAnimationFrame(tick);
+
+    addEventListener('resize', () => {
+      const rect = stage.getBoundingClientRect();
+      target.x = clamp(target.x, 30, rect.width - 30);
+      target.y = clamp(target.y, rect.height * 0.4, rect.height - 20);
+    });
+  </script>
+</body>
+</html>
