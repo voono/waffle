@@ -5,7 +5,7 @@ set -euo pipefail
 # VOONO Ubuntu VPS Setup Script
 # Supports:
 #   default (full): Marzban + Warp + Nginx
-#   custom flags: -m (marzban) -w (warp) -n (nginx)
+#   custom flags: -m (marzban) -w (warp) -n (nginx) -b (beszel agent)
 # ===============================
 
 GREEN="\033[1;32m"; YELLOW="\033[1;33m"; RED="\033[1;31m"; NC="\033[0m"
@@ -52,6 +52,7 @@ apt_update_once() {
 INSTALL_M=false
 INSTALL_W=false
 INSTALL_N=false
+INSTALL_B=false
 
 if [[ $# -eq 0 ]]; then
   # default = full install
@@ -64,6 +65,7 @@ else
       -m) INSTALL_M=true ;;
       -w) INSTALL_W=true ;;
       -n) INSTALL_N=true ;;
+      -b) INSTALL_B=true ;;
       -h|--help)
         cat <<EOF
 Usage: sudo bash $0 [options]
@@ -72,6 +74,7 @@ No options     Full install: Marzban Node + Warp + Nginx
 -m             Install Marzban Node
 -w             Install Warp (WireGuard + wgcf)
 -n             Install Nginx (TLS, redirect, static index)
+-b             Install Beszel Agent (Docker)
 EOF
         exit 0
         ;;
@@ -203,6 +206,69 @@ PEM
   (cd /root/Marzban-node && docker compose up -d)
 
   log "Marzban-Node installed and configured successfully."
+}
+
+# ---------------------------------
+# Step: Beszel Agent (Docker)
+# ---------------------------------
+install_beszel() {
+  log "Installing Beszel Agent via Docker..."
+  apt_update_once
+  $APT install curl git wget -y
+
+  if ! command -v docker >/dev/null 2>&1; then
+    log "Installing Docker..."
+    curl -fsSL https://get.docker.com | sh
+  else
+    log "Docker already installed."
+  fi
+
+  # Ensure docker compose plugin exists
+  if ! docker compose version >/dev/null 2>&1; then
+    warn "Docker 'compose' plugin not detected. Attempting to install via apt..."
+    $APT install docker-compose-plugin -y || true
+  fi
+
+  local KEY TOKEN
+  read -rp "Enter Beszel HUB KEY: " KEY
+  read -rp "Enter Beszel HUB TOKEN: " TOKEN
+  if [[ -z "${KEY:-}" || -z "${TOKEN:-}" ]]; then
+    err "KEY and TOKEN are required for Beszel Agent."
+    exit 1
+  fi
+
+  mkdir -p /root/beszel-agent/beszel_agent_data
+
+  log "Writing /root/beszel-agent/.env..."
+  cat >/root/beszel-agent/.env <<ENVFILE
+KEY=${KEY}
+TOKEN=${TOKEN}
+ENVFILE
+
+  log "Writing /root/beszel-agent/docker-compose.yml..."
+  cat >/root/beszel-agent/docker-compose.yml <<'YAML'
+services:
+  beszel-agent:
+    image: henrygd/beszel-agent
+    container_name: beszel-agent
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./beszel_agent_data:/var/lib/beszel-agent
+      # monitor other disks / partitions by mounting a folder in /extra-filesystems
+      # - /mnt/disk/.beszel:/extra-filesystems/sda1:ro
+    environment:
+      LISTEN: 45876
+      KEY: "${KEY}"
+      TOKEN: "${TOKEN}"
+      HUB_URL: https://m.piche.pw
+YAML
+
+  log "Starting Beszel Agent (docker compose up -d)..."
+  (cd /root/beszel-agent && docker compose up -d)
+
+  log "Beszel Agent installed and running."
 }
 
 # ---------------------------------
@@ -405,7 +471,8 @@ log "Selected actions:"
 $INSTALL_M && echo "  - Marzban Node"
 $INSTALL_W && echo "  - Warp (wgcf + WireGuard)"
 $INSTALL_N && echo "  - Nginx + TLS"
-if ! $INSTALL_M && ! $INSTALL_W && ! $INSTALL_N; then
+$INSTALL_B && echo "  - Beszel Agent"
+if ! $INSTALL_M && ! $INSTALL_W && ! $INSTALL_N && ! $INSTALL_B; then
   warn "Nothing selected. Exiting."
   exit 0
 fi
@@ -414,5 +481,6 @@ fi
 $INSTALL_M && install_marzban
 $INSTALL_W && install_warp
 $INSTALL_N && install_nginx
+$INSTALL_B && install_beszel
 
 log "All done. ✨"
